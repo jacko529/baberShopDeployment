@@ -1,0 +1,47 @@
+---
+- name: Download composer setup
+  sudo: yes
+  shell:  php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+  args:
+    chdir: /home/ubuntu/
+
+
+- name: Check composer checksum
+  sudo: yes
+  shell:  php -r "if (hash_file('sha384', 'composer-setup.php') === 'a5c698ffe4b8e849a443b120cd5ba38043260d5c4023dbf93e1558871f1f07f58274fc6f4c93bcfd858c6bd0775cd8d1') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
+  args:
+    chdir: /home/ubuntu/
+
+- name: make composer setup writable
+  sudo: yes
+  file:
+    path: /home/ubuntu/composer-setup.php
+    mode: 777
+    state: file
+
+- name: Run composer setup script
+  sudo: yes
+  shell:  php composer-setup.php
+  args:
+    chdir: /home/ubuntu/
+
+- name: rename composer.phar to composer
+  shell: mv /home/ubuntu/composer.phar /usr/local/bin/composer
+  args:
+    creates: /usr/local/bin/composer
+  tags: composer
+
+- name: make composer executable
+  file:
+    path: /usr/local/bin/composer
+    mode: a+x
+    state: file
+  tags: composer
+
+- name: Delete compose setup files
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /home/ubuntu/composer.phar
+    - /home/ubuntu/composer-setup.php

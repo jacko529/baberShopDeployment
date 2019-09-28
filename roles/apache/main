@@ -1,0 +1,27 @@
+---
+- name: Install Apache PPA
+  apt_repository: repo="ppa:ondrej/apache2" update_cache=yes
+
+- name: Install apache
+  apt: name=apache2 state=present
+  sudo: yes
+
+- name: enabled mod_rewrite
+  apache2_module: name=rewrite state=present
+  notify:
+     - restart apache2
+
+- name: Upload apache2 default configuration
+  become: yes
+  template: src=templates/000-default.conf dest=/etc/apache2/sites-enabled/
+
+- name: Enable rewrite module
+  apache2_module:
+    name: rewrite
+    state: present
+    ignore_configcheck: True
+
+- name: Restart webserver
+  become: yes
+  service: name=apache2 state=restarted
+

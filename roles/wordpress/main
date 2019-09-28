@@ -1,0 +1,205 @@
+---
+
+- set_fact:
+    timestamp: "{{ansible_date_time.iso8601_basic_short}}"
+
+- name: check ssh folder is created
+  stat:
+    path: ~/.ssh
+  register: ssh
+
+- name: check uploads folder is created
+  stat:
+    path: /var/www/uploads
+  register: uploads
+
+- name: check releases folder is created
+  stat:
+    path: /var/www/releases
+  register: releases
+
+- name: check sql folder is created
+  stat:
+    path: /home/ubuntu/sql
+  register: sql
+
+- name: Creates releases directory for root
+  sudo: yes
+  file: path=~/.ssh state=directory
+  when: releases.stat.exists == False
+
+- name: Creates .ssh directory for root
+  sudo: yes
+  file: path=~/.ssh state=directory
+  when: ssh.stat.exists == False
+
+- name: Creates uploads folder
+  sudo: yes
+  file: path=/var/www/uploads state=directory
+  when: uploads.stat.exists == False
+
+- name: Creates sql folder
+  sudo: yes
+  file: path=/home/ubuntu/sql state=directory
+  when: sql.stat.exists == False
+
+- name: Upload the private key used for Github cloning
+  sudo: yes
+  copy: src=./templates/id_rsa dest=~/.ssh/id_rsa
+
+- name: Correct SSH deploy key permissions
+  sudo: yes
+  file: dest=~/.ssh/id_rsa mode=0600
+
+- name: configure ssh to use ansible key for github.com
+  template:
+    src: ./ssh.config
+    dest: ~/.ssh/config
+    owner: root
+    group: root
+    mode: 600
+
+- name: Removing old symlink for site
+  file:
+    path: /var/www/html/site
+    state: absent
+
+- name: Deploy site files from Github repository
+  git:
+    repo: {{ repo }}
+    dest: /var/www/releases/{{ timestamp }}
+    key_file: ~/.ssh/id_rsa
+    version: "{{ branch }}"
+    accept_hostkey: yes
+    force: yes
+
+- name: Create symbolic link for releases
+  file:
+    src: /var/www/releases/{{ timestamp }}
+    dest: /var/www/html/site
+    force: yes
+    state: link
+    mode: 755
+
+- name: Remove ssh key from directory
+  sudo: yes
+  file:
+    path: ~/.ssh/id_rsa
+    state: absent
+
+- name: make server directory writable
+  file:
+    path: /var/www/
+    state: directory
+    recurse: yes
+    owner: www-data
+
+- name: Composer Install
+  become_user: www-data
+  composer:
+    command: install
+    working_dir: /var/www/html/site
+
+- name: Create symbolic link for uploads
+  become_user: www-data
+  file:
+    src: /var/www/uploads/
+    dest: /var/www/html/site/public/wp-content/uploads
+    state: link
+    mode: 777
+
+
+- name: Copy WordPress config file
+  become_user: www-data
+  template:
+    src: ./templates/wp-config.php
+    dest: /var/www/html/site/public
+
+- name: make wp_config writable
+  sudo: yes
+  file:
+    path: /var/www/html/site/public/wp-config.php
+    mode: g+w
+    state: file
+
+- name: Copy wp-cli settings
+  become_user: www-data
+  template:
+    src: ./templates/wp-cli.yml
+    dest: /var/www/html/site/public
+
+- name: make wp-cli writable
+  sudo: yes
+  file:
+    path: /var/www/html/site/public/wp-cli.yml
+    mode: g+w
+    state: file
+
+- name: Install wordpress
+  become_user: www-data
+  shell:  wp core install --url="{{ host }}" --title="{{ title }}" --admin_name="{{ admin_name }}" --admin_password="{{ admin_password }}" --admin_email="{{ admin_email }}"
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Generate Salts
+  become_user: www-data
+  shell:  wp config shuffle-salts
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Copy env file
+  become_user: www-data
+  template:
+    src: ./templates/.env
+    dest: /var/www/html/site/
+
+- name: Activate wordpress theme
+  become_user: www-data
+  shell:  wp theme activate wri-headless-wp
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Rewrite Structure
+  become_user: www-data
+  shell: wp rewrite structure '/%postname%/' --hard
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Wordpress disallow file mods
+  become_user: www-data
+  shell:  wp config set DISALLOW_FILE_MODS true
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Activate all plugins
+  become_user: www-data
+  shell:  wp plugin activate --all
+  args:
+    chdir: /var/www/html/site/public
+
+- name: Copy SQL file over
+  sudo: yes
+  template:
+    src: ./templates/update.sql
+    dest: /home/ubuntu/sql
+
+- name: Update database to for spanish use
+  become_user: www-data
+  shell:  wp db query < /home/ubuntu/sql/update.sql
+  args:
+    chdir: /var/www/html/site/public
+
+- name: List old releases and clean them up
+  shell: ls -t | tail -n +{{ number_of_release_folders }}
+  register: releases_to_delete
+  args:
+    chdir: /var/www/releases/
+  register: delete
+
+- name: Delete old releases
+  file: name=/var/www/releases/{{ item }}
+  recurse: yes
+  state: absent
+  with_items: releases_to_delete.stdout_lines
+  when: delete.stderr != ""
+

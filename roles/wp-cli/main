@@ -1,0 +1,25 @@
+---
+- name: download wordpress cli
+  get_url:
+    url: https://raw.github.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+    dest: ~/
+  tags: wordpress-cli
+
+- name: rename wp-cli.phar to wp
+  shell: mv ~/wp-cli.phar /usr/local/bin/wp
+  tags:  wordpress-cli
+
+- name: make wp-cli executable
+  file:
+    path: /usr/local/bin/wp
+    mode: a+x
+    state: file
+  tags:  wordpress-cli
+
+- name: Mysql
+  apt:
+    name: "{{ item }}"
+    state: present
+    force: yes
+  with_items:
+    - mysql-client

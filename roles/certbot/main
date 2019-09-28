@@ -1,0 +1,16 @@
+---
+  - name:  Add certbot repo
+    apt_repository:
+      repo: 'ppa:certbot/certbot'
+      update_cache: yes
+
+  - name: install addtional certbot packages
+    apt:
+      name: "{{ item }}"
+      state: present
+    with_items:
+      - python-certbox-apache
+
+  - name: install certificate
+    sudo: yes
+    shell:  cretbot --apache -d {{ domain }} -d www.{{ domain }}
